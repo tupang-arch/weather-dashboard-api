@@ -11,17 +11,12 @@ from app.services.weather_service import get_weather
 app = FastAPI(title=settings.app_name)
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
 def _home_page(error: str | None = None, result_html: str | None = None) -> str:
     err = f"<p style='color:#ff6b6b;'><b>{error}</b></p>" if error else ""
     res = result_html or ""
     return f"""
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -35,7 +30,7 @@ def _home_page(error: str | None = None, result_html: str | None = None) -> str:
       color: #e6e6e6;
     }}
     .card {{
-      max-width: 520px;
+      max-width: 560px;
       background: rgba(255,255,255,0.06);
       border: 1px solid rgba(255,255,255,0.12);
       border-radius: 16px;
@@ -43,6 +38,7 @@ def _home_page(error: str | None = None, result_html: str | None = None) -> str:
       box-shadow: 0 10px 30px rgba(0,0,0,0.25);
     }}
     h1 {{ margin-top: 0; }}
+    p {{ line-height: 1.5; }}
     label {{ display:block; margin-top: 10px; opacity: 0.95; }}
     input {{
       width: 100%;
@@ -76,6 +72,12 @@ def _home_page(error: str | None = None, result_html: str | None = None) -> str:
       border: 1px solid rgba(255,255,255,0.12);
     }}
     a {{ color: #9fd3ff; }}
+    code {{
+      background: rgba(255,255,255,0.08);
+      padding: 2px 6px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.10);
+    }}
   </style>
 </head>
 <body>
@@ -93,18 +95,23 @@ def _home_page(error: str | None = None, result_html: str | None = None) -> str:
       <input name="country_code" placeholder="DE" />
 
       <button type="submit">Search</button>
-      <small>Example: Erfurt + DE</small>
+      <small>Examples: <code>Erfurt</code> + <code>DE</code>, <code>Bucharest</code> + <code>RO</code></small>
     </form>
 
     {res}
 
     <p style="margin-top:14px;">
-      Endpoints: <a href="/docs">/docs</a> • Health: <a href="/health">/health</a>
+      API Docs: <a href="/docs">/docs</a> • Health: <a href="/health">/health</a>
     </p>
   </div>
 </body>
 </html>
 """
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -115,7 +122,7 @@ def home():
 @app.get("/city", response_class=HTMLResponse)
 async def city_weather(
     name: str = Query(..., min_length=2),
-    country_code: str | None = Query(None),  # optional, no min_length here!
+    country_code: str | None = Query(None),
 ):
     try:
         lat, lon, display = await get_city_coords(name, country_code)
@@ -127,10 +134,17 @@ async def city_weather(
         temp = current.get("temperature_2m")
         wind = current.get("wind_speed_10m")
 
-        cached = result.get("cached", False)
-
         if temp is None:
             return HTMLResponse(_home_page(error="No temperature data returned by provider."))
+
+        cached = bool(result.get("cached", False))
+        stale = bool(result.get("stale", False))
+
+        mode = "Live"
+        if cached and stale:
+            mode = "Cached (stale)"
+        elif cached:
+            mode = "Cached"
 
         result_html = f"""
         <div class="result">
@@ -138,7 +152,10 @@ async def city_weather(
           <p style="margin:0;"><b>Temperature now:</b> {temp} °C</p>
           <p style="margin:6px 0 0 0;"><b>Wind:</b> {wind} km/h</p>
           <p style="margin:10px 0 0 0; opacity:0.8;">
-            Cached: {"Yes" if cached else "No"} • Coords: {lat:.4f}, {lon:.4f}
+            Mode: {mode} • Coords: {lat:.4f}, {lon:.4f}
+          </p>
+          <p style="margin:10px 0 0 0; opacity:0.75; font-size:13px;">
+            If you see rate-limit messages, wait 1–2 minutes (provider limits on free/shared hosting).
           </p>
         </div>
         """
@@ -148,23 +165,23 @@ async def city_weather(
         return HTMLResponse(_home_page(error=str(e)))
 
     except httpx.HTTPStatusError as e:
-        status = e.response.status_code
+        status = e.response.status_code if e.response else 500
 
         if status == 429:
             return HTMLResponse(
                 _home_page(
-                    error="Rate limit from Open-Meteo (429). Wait 1–2 minutes and try again."
+                    error="Rate limit (429) from Open-Meteo. Please wait 1–2 minutes and try again. "
+                         "On free/shared hosting, limits can happen even with few users."
                 )
             )
 
         return HTMLResponse(_home_page(error=f"Provider error: HTTP {status}"))
 
     except Exception as e:
-        # show error text for debugging (safe enough for a demo project)
         return HTMLResponse(_home_page(error=f"Internal error: {str(e)}"))
 
 
-# Render uses $PORT
+# Local run helper (Render uses $PORT)
 if __name__ == "__main__":
     import uvicorn
 
