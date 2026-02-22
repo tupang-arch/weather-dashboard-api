@@ -2,10 +2,11 @@
 from app.settings import settings
 from app.clients.open_meteo import fetch_weather
 
-_cache = TTLCache(maxsize=256, ttl=settings.cache_ttl_seconds)
+_cache = TTLCache(maxsize=512, ttl=settings.cache_ttl_seconds)
 
 def _cache_key(lat: float, lon: float) -> str:
-    return f"{lat:.4f}:{lon:.4f}"
+    # rotunjim ca să nu facem cache diferit pentru 50.978700 vs 50.978701
+    return f"{lat:.3f}:{lon:.3f}"
 
 async def get_weather(lat: float, lon: float) -> dict:
     key = _cache_key(lat, lon)

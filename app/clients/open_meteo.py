@@ -1,4 +1,5 @@
 import httpx
+from app.settings import settings
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
@@ -22,7 +23,7 @@ async def fetch_weather(lat: float, lon: float) -> dict:
         "timezone": "auto",
     }
 
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
         r = await client.get(OPEN_METEO_URL, params=params)
         r.raise_for_status()
         return r.json()
